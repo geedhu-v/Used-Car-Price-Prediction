@@ -1,0 +1,383 @@
+---
+title: "Used Car Price Prediction"
+author: "Geedhu"
+date: "2023-08-05"
+output: pdf_document
+---
+##################################################
+### Basic Set Up                                ##
+##################################################
+
+```{r}
+# Clear plots
+if(!is.null(dev.list())) dev.off()
+# Clear console
+cat("\014") 
+# Clean workspace
+rm(list=ls())
+```
+```{r}
+#If the library is not already downloaded, download it
+#if(!require(lattice)){install.packages("lattice")}
+library("lattice")
+#if(!require(pastecs)){install.packages("pastecs")}
+library("pastecs")
+#if(!require(corrgram)){install.packages("corrgram")}
+library("corrgram")
+#if(!require(cowplot)){install.packages("cowplot")}
+library("cowplot")
+#if(!require(tidyverse)){install.packages("tidyverse")}
+library("tidyverse")
+#if(!require(caret)){install.packages("caret")}
+library("caret")
+#if(!require(datarium)){install.packages("datarium")}
+library("datarium")
+```
+
+##################################################
+### Procuring Data Sets                         ##
+##################################################
+
+Data set is obtained from websit Kaggle <https://www.kaggle.com/datasets/nehalbirla/vehicle-dataset-from-cardekho?select=car+data.csv>
+
+
+##################################################
+### Reading the train data set                  ##
+##################################################
+
+```{r}
+dataset <- read.csv("C:/Users/Geedhu/Documents/Maths _ Data Analysys/Project/CAR DETAILS FROM CAR DEKHO.csv")
+head(dataset,3)
+```
+
+##################################################
+### changing the column names 
+##################################################
+
+```{r}
+# Viewing the first few rows of data set
+colnames(dataset) <- paste(colnames(dataset),"JDG",sep="_")
+head(dataset,3)
+
+```
+# Structure of the dataset
+```{r}
+str(dataset)
+```
+### Transform character variables to factor variables.
+```{r}
+dataset$name_JDG = as.factor(dataset$name_JDG)
+dataset$fuel_JDG= as.factor(dataset$fuel_JDG)
+dataset$seller_type_JDG= as.factor(dataset$seller_type_JDG)
+dataset$transmission_JDG= as.factor(dataset$transmission_JDG)
+dataset$owner_JDG= as.factor(dataset$owner_JDG)
+str(dataset)
+```
+### Removing null values
+```{r}
+dataset[dataset == ""]
+dataset[dataset == ""] <- NA
+ratio = sum(is.na(dataset))/nrow(dataset)
+ratio
+```
+### remove duplicates
+```{r}
+dataset <- unique(dataset)
+str(dataset)
+```
+### removing outliers
+```{r}
+#Finding Outliers
+# Boxplots can be plotted only for numerical data
+boxplot(dataset$year, horizontal=TRUE, pch=20,main = "Year Range",col="Orange")
+boxplot(dataset$km_driven, horizontal=TRUE, pch=20,main = "Kilometers Driven Range",col="Pink")
+boxplot(dataset$selling_price, horizontal=TRUE, pch=20, main = "Selling Price Range",col="Maroon")
+
+```
+#Density Plots for further details
+```{r}
+densityplot( ~ dataset$km_driven, pch=6)
+densityplot( ~ dataset$selling_price, pch=6)
+densityplot( ~ dataset$year, pch=6)
+
+```
+# scatter plot to find hidden outlier
+```{r}
+plot(dataset$km_driven_JDG,dataset$selling_price_JDG, main='Hunting Hiding outliers',pch=20)
+plot(dataset$year_JDG,dataset$selling_price_JDG, main='Hunting Hiding outliers',pch=20)
+```
+# Bar chart to identify outliers for factor variable
+```{r}
+barplot(table(dataset$name_JDG ), cex.names=.75,col="lightgreen",las=2,main="Vehicle_Name")
+barplot(table(dataset$fuel_JDG ), cex.names=.75,col="pink",main="Fuel_Type")
+barplot(table(dataset$seller_type_JDG ), cex.names=.75,col="orange",main="Seller_Type")
+barplot(table(dataset$transmission_JDG ), cex.names=.75,col="violet",main ="Transmission_Type" )
+barplot(table(dataset$owner_JDG ), cex.names=.75,col="lightblue",main="Owner")
+```
+
+```{r}
+## removing vehicle name
+dataset <- dataset[,-c(1)]
+str(dataset)
+```
+
+## removing year < 2000
+```{r}
+dataset <- dataset[dataset$year_JDG > 1999,]
+str(dataset)
+```
+
+## FEATURE SELECTION
+
+## Filter Feature Selection
+
+# 1. Identify Low Variance
+
+```{r}
+
+library(pastecs)
+summary_df <- stat.desc(dataset)
+summary_df
+
+# year_JDG has very low coefficient of variation, which indicates minimal internal variation, and so it can be removed.
+
+table(dataset$year_JDG)
+```
+
+#2. Identify High Correlation
+
+```{r}
+
+library(dplyr)
+corr = cor(select(dataset,year_JDG,selling_price_JDG,km_driven_JDG),method="pearson")
+corr
+
+
+```
+
+
+
+## wrapper feature selection
+
+```{r}
+FitStart = lm(selling_price_JDG ~ 1, data=dataset) # lm developed using one feature
+
+FitAll = lm(selling_price_JDG ~., data=dataset) #lm developed using all features
+
+
+summary(FitAll)
+
+summary(FitStart)
+
+step(FitStart,direction = "forward", scope=formula(FitAll))
+
+step(FitAll,direction = "backward")
+```
+
+
+#Density Plots for further details
+```{r}
+densityplot( ~ dataset$km_driven, pch=6)
+densityplot( ~ dataset$selling_price, pch=6)
+densityplot( ~ dataset$year_JDG, pch=6)
+
+```
+## Data Scaling
+
+We could see from density plot that numerical data of dataset is not normally distributed (Km and selling price is right skewed and year is left skewed).Without scaling the machine learning models will try to disregard coefficients of features that has low values because their impact will be very small as compared to the higher values. In this project, we use Tukeys ladder method  find the power transformation 
+that makes the transformed data as close to normal as possible 
+(normality) and stabilizes the variance (homoscedasticity) 
+```{r}
+if(!require(rcompanion)){install.packages("rcompanion")}
+library("rcompanion")#Q-Q plot
+if(!require(psych)){install.packages("psych")}
+library("psych")
+```
+
+
+```{r}
+### Tukey's Ladder for selling Price
+selling_price_JDG = transformTukey(dataset$selling_price_JDG,plotit=TRUE)
+plotNormalHistogram(selling_price_JDG)
+```
+
+```{r}
+#Q-Q Plot
+##qqnorm(dataset$selling_price_JDG) #the result shows it is not normal distributed.
+##qqline(dataset$selling_price_JDG,col="blue")
+```
+
+
+# Using Min-Max scaling
+```{r}
+
+# Calculate the minimum and maximum values
+min_value <- min(dataset$selling_price_JDG)
+max_value <- max(dataset$selling_price_JDG)
+
+# Perform Min-Max scaling
+dataset$selling_price_JDG <- (dataset$selling_price_JDG - min_value) / (max_value - min_value)
+
+plotNormalHistogram(dataset$selling_price_JDG)
+
+```
+
+```{r}
+#Q-Q Plot
+qqnorm(dataset$selling_price_JDG) #the result shows it is not normal distributed.
+qqline(dataset$selling_price_JDG,col="blue")
+```
+## Split the data using "Two way Hold out validation"
+
+```{r}
+m=length(dataset$selling_price_JDG)
+cat("Dataset size: ",m)
+
+set.seed(456) 
+train_index=sample(m,m*0.8)
+train_set <- dataset[train_index, ]
+number_train_set <- length(train_set$year_JDG)
+cat("\nNumber of train set: ",number_train_set)
+test_set <-dataset[-train_index,]
+number_test_set <- length(test_set$year_JDG)
+cat("\nNumber of test set: ",number_test_set)
+```
+
+## Performing Wilcox test for numerical values containing attributes to check if both columns have no evidence of statistically significant difference
+
+```{r}
+wilcox.test(train_set$year_JDG, test_set$year_JDG)
+wilcox.test(train_set$selling_price_JDG, test_set$selling_price_JDG)
+wilcox.test(train_set$km_driven_JDG, test_set$km_driven_JDG)
+#wilcox.test(train_set$Number_of_years, test_set$Number_of_years)
+```
+Since all the wilcox test performed on all the attributes has p-value greater than the significance level 0.05,
+we do not have enough evidence to reject the null hypothesis. Therefore, we can conclude that there is no
+significant difference in the distribution of all the attributes between the train_set and test_set data.
+
+## Model1: Multi-Linear Regression Model using "Two way Hold Validation"
+
+```{r}
+start_time_mlr <- Sys.time()
+mlr_model = lm( selling_price_JDG ~ ., data=train_set, na.action=na.omit)  
+end_time_mlr <- Sys.time()
+mlr_Time <- end_time_mlr - start_time_mlr
+cat("Time taken to train the model is ",mlr_Time)
+
+print("Model Decsription:")
+summary(mlr_model)
+
+par(mfrow = c(2, 2)) 
+plot(mlr_model)
+```
+###RMSE Evaluation
+```{r}
+### Train Set
+pred <- predict(mlr_model, newdata=train_set)
+RMSE_trn_full <- sqrt(mean((train_set$selling_price_JDG - pred)^2))
+cat("RMSE value of train set: ",round(RMSE_trn_full,2))
+```
+
+```{r}
+### Test Set
+pred <- predict(mlr_model, newdata=test_set)
+RMSE_trn_full <- sqrt(mean((test_set$selling_price_JDG - pred)^2))
+cat("RMSE value of test set: ",round(RMSE_trn_full,2))
+```
+## Split data using K-fold cross validation
+```{r}
+set.seed(456)
+# defining training control as cross-validation and K=10 
+train_control <- trainControl(method = "cv", number = 10)
+
+# training the model by assigning sales column
+# as target variable and rest other column as independent variable
+model_cv <- train(selling_price_JDG ~., data = dataset,
+               method = "lm",
+               trControl = train_control)
+
+# printing model performance metrics
+# along with other details
+print(model_cv)
+```
+## Split data using 10-times-10-fold Cross-Validation
+
+```{r}
+set.seed(456)
+# defining training control as cross-validation and K=10 
+train_control <- trainControl(method = "repeatedcv", number = 10, repeats=10)
+
+# training the model by assigning sales column
+# as target variable and rest other column as independent variable
+model_cv2 <- train(selling_price_JDG ~., data = dataset,
+                  method = "lm",
+                  trControl = train_control)
+
+# printing model performance metrics
+# along with other details
+print(model_cv2)
+```
+## Model 2: Support Vector Regression
+```{r}
+#install.packages("e1071")
+library(e1071)
+```
+## Model 2: Support Vector Regression
+```{r}
+start_time_svr <- Sys.time()
+svr_model <- svm(selling_price_JDG ~ ., data = train_set, type = 'eps-regression', na.action = na.omit)
+end_time_svr <- Sys.time()
+svr_Time <- end_time_svr - start_time_svr
+cat("Time taken to train the SVR model is ",svr_Time)
+
+summary(svr_model)
+
+```
+
+## RMSE Evluation of SVR
+
+```{r}
+### Train Set
+pred <- predict(svr_model, newdata=train_set)
+RMSE_trn_full <- sqrt(mean((train_set$selling_price_JDG - pred)^2))
+cat("RMSE value of train_set",round(RMSE_trn_full,2))
+```
+
+```{r}
+### Test Set
+pred <- predict(svr_model, newdata=test_set)
+RMSE_trn_full <- sqrt(mean((test_set$selling_price_JDG - pred)^2))
+cat("RMSE value of test_set",round(RMSE_trn_full,2))
+```
+
+## Model 3: Random Forest Regression Model
+
+```{r}
+#install.packages("randomForest")
+library(randomForest)
+```
+```{r}
+start_time_rf <- Sys.time()
+rf_model <- randomForest(selling_price_JDG ~ ., data = train_set, na.action = na.roughfix)
+end_time_rf <- Sys.time()
+rf_Time <- end_time_rf - start_time_rf
+cat("Time taken to train the RF model is ",rf_Time)
+summary(rf_model)
+```
+## RMSE Evluation of RF
+
+```{r}
+### Train Set
+pred <- predict(rf_model, newdata=train_set)
+RMSE_trn_full <- sqrt(mean((train_set$selling_price_JDG - pred)^2))
+cat("RMSE value of train_set",round(RMSE_trn_full,2))
+```
+
+```{r}
+### Test Set
+pred <- predict(rf_model, newdata=test_set)
+RMSE_trn_full <- sqrt(mean((test_set$selling_price_JDG - pred)^2))
+cat("RMSE value of test_set",round(RMSE_trn_full,2))
+```
+
+
